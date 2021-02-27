@@ -3,4 +3,7 @@ libs =
 
 exe{test}: {hxx ixx txx cxx}{**} $libs testscript
 
+if ($cxx.id == 'clang' && $cxx.target.system == 'win32-msvc')
+  cxx.coptions += -fexternc-unwind
+
 cxx.poptions =+ "-I$out_root" "-I$src_root"
