@@ -1,0 +1,12 @@
+: 1
+name: test
+version: 0.1.0-a.0.z
+summary: test C++ executable
+license: other: proprietary ; Not free/open source.
+description-file: README.md
+url: https://example.org/test
+email: karen@codesynthesis.com
+#build-error-email: karen@codesynthesis.com
+depends: * build2 >= 0.13.0
+depends: * bpkg >= 0.13.0
+#depends: libhello ^1.0.0
