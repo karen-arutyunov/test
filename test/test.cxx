@@ -1,158 +1,99 @@
-#include <io.h>
 #include <fcntl.h>
+#include <io.h>
+#include <assert.h>
 
-#include <string>
-#include <iostream>
-#include <functional>
-#include <algorithm>
+#include <memory> // Required?
+
+extern "C" int printf(const char *f, ...);
+
 
 using namespace std;
 
 struct error {};
 struct failed {};
 
-bool
-fdclose (int fd) noexcept
-{
-  cerr << "fdclose: " << fd << endl;
-  return _close (fd) == 0;
+static __declspec(noinline) bool fdclose(int fd) noexcept {
+  printf("fdclose: %d\n", fd);
+  return _close(fd) == 0;
 }
 
-class auto_fd
-{
-public:
-  explicit
-  auto_fd (int fd = -1) noexcept: fd_ (fd) {}
+struct auto_fd {
+  explicit auto_fd(int fd = -1) noexcept : fd_(fd) {}
 
-  auto_fd (auto_fd&& fd) noexcept: fd_ (fd.release ()) {}
+  auto_fd(auto_fd &&fd) noexcept : fd_(fd.release()) {}
 
-  auto_fd (const auto_fd&) = delete;
-  auto_fd& operator= (const auto_fd&) = delete;
+  auto_fd(const auto_fd &) = delete;
+  auto_fd &operator=(const auto_fd &) = delete;
 
-  auto_fd&
-  operator= (auto_fd&& fd) noexcept
-  {
-    reset (fd.release ());
-    return *this;
+  auto_fd &operator=(auto_fd &&fd) noexcept;
+
+  ~auto_fd() noexcept {
+    if (fd_ >= 0) {
+      fdclose(fd_);
+    }
+
+    fd_ = -1;
   }
 
-  ~auto_fd () noexcept {reset ();}
-
-  int
-  get () const noexcept {return fd_;}
-
-  void
-  reset (int fd = -1) noexcept
-  {
-    if (fd_ >= 0)
-      fdclose (fd_);
-
-    fd_ = fd;
-  }
-
-  int
-  release () noexcept
-  {
-    int r (fd_);
+  int release() noexcept {
+    int r = fd_;
     fd_ = -1;
     return r;
   }
 
-  void
-  close ()
-  {
-    if (fd_ >= 0)
-    {
-      bool r (fdclose (fd_));
+  __declspec(noinline) void close() {
+    if (fd_ >= 0) {
+      bool r(fdclose(fd_));
       fd_ = -1;
-
-      if (!r)
-        throw failed ();
+      assert(r);
     }
   }
 
-private:
   int fd_;
 };
 
-struct fdpipe
-{
-  auto_fd in;
-  auto_fd out;
+static __declspec(noinline) void move_and_close(auto_fd fd) { fd.close(); }
 
-  void
-  close ()
-  {
-    in.close ();
-    out.close ();
-  }
+struct HasDtor {
+  HasDtor() {}
+  __declspec(noinline) ~HasDtor() { printf("~HasDtor\n"); }
 };
 
-fdpipe
-fdopen_pipe ()
-{
+static void __declspec(noinline) move_and_throw(auto_fd fd) {
+  printf("throw 1\n");
+  throw failed();
+}
+
+void run_pipe() {
   int pd[2];
-  if (_pipe (pd, 1024, _O_TEXT) == -1)
-    throw failed ();
+  int r = _pipe(pd, 1024, _O_TEXT);
+  assert(r != -1 && "pipe failed");
 
-  return fdpipe {auto_fd (pd[0]), auto_fd (pd[1])};
-}
+  auto_fd in(pd[0]);
+  auto_fd out(pd[1]);
 
-void
-cmd (auto_fd fd)
-{
-  fd.close ();
-}
+  printf("pipe: %d %d\n", in.fd_, out.fd_);
 
-struct callbacks
-{
-  using func = void ();
+  HasDtor cleanup;
 
-  function<func> fn;
-
-  explicit
-  callbacks (function<func> f = {}): fn (move (f)) {}
-};
-
-void
-run_pipe (bool first, auto_fd)
-{
-  if (!first)
-    throw failed ();
-
-  fdpipe ofd;
-
-  ofd = fdopen_pipe ();
-  cerr << "pipe: " << ofd.in.get () << " " << ofd.out.get () << endl;
-
-  callbacks cs;
-
-  try
-  {
-    cmd (move (ofd.out));
-
-    run_pipe (false, move (ofd.in));
-  }
-  catch (const error&)
-  {
-    throw failed ();
+  try {
+    move_and_close(move(out));
+    move_and_throw(move(in));
+  } catch (const error &) {
+    printf("throw 2\n");
+    throw failed();
   }
 }
 
-int
-main ()
-{
-  int r (0);
+int main() {
+  int r(0);
 
-  try
-  {
-    run_pipe (true, auto_fd ());
-  }
-  catch (const failed&)
-  {
+  try {
+    run_pipe();
+  } catch (const failed &) {
     r = 1;
   }
 
-  cerr << "exit";
+  printf("exit\n");
   return r;
 }
